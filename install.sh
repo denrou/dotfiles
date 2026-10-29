@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Symlink the personal scripts into ~/.local/bin. Idempotent; never overwrites a real file.
+# Symlink the shell config and personal scripts into place, copy the launchd agents.
+# Idempotent; never overwrites a real file.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,9 +19,25 @@ link() {
   ln -s "$src" "$dst"; echo "link    $dst"
 }
 
+link "$REPO/.zshrc" "$HOME/.zshrc"
+
 for f in "$REPO"/bin/*; do
   [ -e "$f" ] || continue
   link "$f" "$BIN/$(basename "$f")"
+done
+
+# launchd does not reliably follow symlinked agents: copy each plist, then (re)load it.
+for src in "$REPO"/launchd/*.plist; do
+  [ -e "$src" ] || continue
+  PLIST="$HOME/Library/LaunchAgents/$(basename "$src")"
+  if ! cmp -s "$src" "$PLIST" 2>/dev/null; then
+    cp "$src" "$PLIST"
+    launchctl unload "$PLIST" 2>/dev/null || true
+    launchctl load "$PLIST"
+    echo "copy    $PLIST (reloaded)"
+  else
+    echo "ok      $PLIST"
+  fi
 done
 
 # Prune symlinks left behind by scripts removed from the repo: only symlinks, only

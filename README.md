@@ -5,7 +5,8 @@ in `claude-config`, not here.
 
 ## Contents
 
-- `.zshrc` — shell config (not installed by `install.sh`).
+- `.zshrc` — shell config. Secrets stay in `~/.zshenv`, which is deliberately not versioned: the
+  repository is public.
 - `bin/gh-review` — `gh review <PR>`: check out a PR and start a background Claude review of it,
   with `--context` for what the reviewer should know.
 - `bin/gh-fix` — `gh fix <PR>`: start a background Claude session running the `fix-pr` skill.
@@ -16,8 +17,10 @@ in `claude-config`, not here.
 - `bin/showmd` — live HTML preview of Markdown files with pandoc.
 - `bin/git-commit-openai.sh` — draft a conventional commit message from the staged diff.
 - `bin/cron-brew.sh` — scheduled `brew upgrade` that logs each version change.
-- `bin/update-dev-status` — PR, notification and Jira counters for the WezTerm status bar (launchd).
-- `bin/update-slack-status` — set the Slack status from the calendar (launchd).
+- `bin/update-dev-status` — PR, notification and Jira counters for the WezTerm status bar, every
+  5 minutes (`launchd/com.user.dev-status.plist`).
+- `bin/update-slack-status` — set the Slack status from the calendar, every minute
+  (`launchd/com.user.slack-status.plist`).
 
 ## Install
 
@@ -25,6 +28,8 @@ in `claude-config`, not here.
 ./install.sh
 ```
 
-Symlinks every `bin/*` into `~/.local/bin` and prunes symlinks whose target left the repo. Safe to
-re-run. The `gh review` and `gh fix` aliases call `~/.local/bin/gh-review` and `~/.local/bin/gh-fix`,
+Symlinks `.zshrc` into `~` and every `bin/*` into `~/.local/bin`, and prunes symlinks whose target
+left the repo. The launchd agents are copied into `~/Library/LaunchAgents` instead, because launchd
+does not reliably follow a symlinked agent, and reloaded when they change. Safe to re-run. The
+`cron-brew.sh` schedule is still a crontab entry, outside the repo. The `gh review` and `gh fix` aliases call `~/.local/bin/gh-review` and `~/.local/bin/gh-fix`,
 so they keep working through the symlinks.

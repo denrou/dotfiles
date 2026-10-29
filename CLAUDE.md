@@ -6,5 +6,6 @@ Personal repository outside Centreon: the owner is `denrou`, not a Centreon orga
 - Work directly on `main`; no feature branch, no pull request, no `create-pr` skill.
 - Commit when asked. Pushing `main` is blocked by the harness deny list, so after committing give
   me the `git push origin main` command to run myself with `!`.
-- After adding or removing a script in `bin/`, run `./install.sh` so `~/.local/bin` follows.
+- After adding or removing a script in `bin/` or changing a plist in `launchd/`, run `./install.sh`.
+- Never version `~/.zshenv`: it holds the secrets.
 - English only, as everywhere else.
