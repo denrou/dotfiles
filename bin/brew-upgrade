@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Upgrades Homebrew packages and appends each version change to
+# ~/.cache/brew-upgrade-history.log.
+# Scheduled by launchd every 4 hours: ~/Library/LaunchAgents/com.user.brew-upgrade.plist
 
 brew() {
   if [[ "$1" == "upgrade" ]]; then

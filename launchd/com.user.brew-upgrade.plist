@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.user.brew-upgrade</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>/Users/droussel/.local/bin/brew-upgrade</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- Every 4 hours on the hour, like the crontab entry it replaces. Unlike cron, a run missed
+         while the Mac sleeps happens at wake. -->
+    <key>StartCalendarInterval</key>
+    <array>
+      <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>0</integer></dict>
+      <dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>0</integer></dict>
+      <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+      <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>0</integer></dict>
+      <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+      <dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/com.user.brew-upgrade.out</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.user.brew-upgrade.err</string>
+  </dict>
+</plist>
