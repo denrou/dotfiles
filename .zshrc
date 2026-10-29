@@ -5,8 +5,8 @@ eval "$(rbenv init - zsh)"
 
 export PATH="$HOME/.local/bin:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 
-autoload bashcompinit && bashcompinit
 autoload -Uz compinit && compinit
+autoload -Uz bashcompinit && bashcompinit
 
 complete -C '/usr/local/bin/aws_completer' aws
 
@@ -21,8 +21,9 @@ _qual() {
   aws sso login --profile "$AWS_PROFILE"
 }
 
-oiwjdfnwoeijfn() {
-  cat /Users/droussel/.config/docker_centreon_secret.txt | docker login -u droussel --password-stdin docker.centreon.com
+# Deliberate: not `_docker`, which is the name of zsh's docker completion function.
+docker-login-centreon() {
+  docker login -u droussel --password-stdin docker.centreon.com < "$HOME/.config/docker_centreon_secret.txt"
 }
 
 # Word navigation with Option + arrows
@@ -33,18 +34,7 @@ bindkey "^[b" backward-word
 bindkey "^[[H" beginning-of-line
 bindkey "^[[F" end-of-line
 
-# ── Planning ──────────────────────────────────────────────────────────────────
-WORKBOOK="$HOME/planning/workbook.md"
-TASKS="$HOME/planning/tasks.md"
-
-# plan: prepend a new dated entry to the workbook and open it
-plan() {
-  local header="## $(date +%Y-%m-%d) — $(date +%A)"
-  local block="${header}\n\n### Focus\n\n\n### In progress\n\n\n### Notes\n\n"
-  local tmp=$(mktemp)
-  { printf '%s\n\n---\n\n' "$block"; tail -n +3 "$WORKBOOK"; } > "$tmp" && mv "$tmp" "$WORKBOOK"
-  nvim +4 "$WORKBOOK"
+# Key bindings that differ from tmux's defaults.
+tmux-keybindings() {
+  comm -23 <(tmux list-keys | sort) <(tmux -L defaults -f /dev/null list-keys | sort)
 }
-
-alias tmux-keybindings=$(comm -23 <(tmux list-keys | sort) <(tmux -L test -f /dev/null list-keys | sort))
-
