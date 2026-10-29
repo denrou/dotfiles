@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gh-pr-review-time [OPTIONS] REVIEWER START END SCOPE
+
+Arguments:
+  REVIEWER   GitHub login of the reviewer, e.g. droussel
+  START      Start date, YYYY-MM-DD
+  END        End date, YYYY-MM-DD
+  SCOPE      GitHub search scope, e.g. repo:owner/repo or org:my-org
+
+Options:
+  --summary, --stats   Output only summary statistics
+  --formal-only        Count only formal GitHub PR reviews, not PR comments
+  -h, --help           Show this help
+
+Examples:
+  gh-pr-review-time droussel 2026-01-01 2026-01-31 repo:centreon/centreon-pulse
+
+  gh-pr-review-time --stats droussel 2026-01-01 2026-01-31 org:centreon
+
+  gh-pr-review-time --formal-only --summary droussel 2026-01-01 2026-01-31 repo:centreon/centreon-pulse
+EOF
+}
+
+SUMMARY=false
+FORMAL_ONLY=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --summary|--stats)
+      SUMMARY=true
+      shift
+      ;;
+    --formal-only)
+      FORMAL_ONLY=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      echo >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ $# -ne 4 ]]; then
+  usage >&2
+  exit 1
+fi
+
+REVIEWER="$1"
+START="$2"
+END="$3"
+SCOPE="$4"
+
+if [[ "$FORMAL_ONLY" == true ]]; then
+  SEARCH_QUERY="is:pr ${SCOPE} reviewed-by:${REVIEWER} updated:>=${START}"
+else
+  SEARCH_QUERY="is:pr ${SCOPE} involves:${REVIEWER} updated:>=${START}"
+fi
+
+gh api graphql --paginate --slurp \
+  -F q="$SEARCH_QUERY" \
+  -F reviewer="$REVIEWER" \
+  -f query='
+query($q: String!, $reviewer: String!, $endCursor: String) {
+  search(query: $q, type: ISSUE, first: 100, after: $endCursor) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      ... on PullRequest {
+        number
+        title
+        url
+        createdAt
+
+        reviews(first: 100, author: $reviewer) {
+          nodes {
+            createdAt
+            submittedAt
+            state
+            url
+            author {
+              login
+            }
+          }
+        }
+
+        comments(first: 100) {
+          nodes {
+            createdAt
+            url
+            author {
+              login
+            }
+          }
+        }
+      }
+    }
+  }
+}
+' | jq \
+  --arg reviewer "$REVIEWER" \
+  --arg start "${START}T00:00:00Z" \
+  --arg end "${END}T23:59:59Z" \
+  --arg scope "$SCOPE" \
+  --argjson summary "$SUMMARY" \
+  --argjson formal_only "$FORMAL_ONLY" '
+def to_ts: fromdateiso8601;
+
+def round2:
+  if . == null then null
+  else (. * 100 | round) / 100
+  end;
+
+def mean:
+  if length == 0 then null
+  else add / length
+  end;
+
+def median:
+  sort as $s
+  | length as $n
+  | if $n == 0 then null
+    elif ($n % 2) == 1 then $s[($n / 2 | floor)]
+    else (($s[($n / 2) - 1] + $s[$n / 2]) / 2)
+    end;
+
+def percentile($p):
+  sort as $s
+  | length as $n
+  | if $n == 0 then null
+    else $s[((($n - 1) * $p) | round)]
+    end;
+
+def stdev:
+  if length <= 1 then null
+  else
+    mean as $m
+    | (map((. - $m) * (. - $m)) | add / (length - 1)) | sqrt
+  end;
+
+def min_or_null:
+  if length == 0 then null else min end;
+
+def max_or_null:
+  if length == 0 then null else max end;
+
+def duration_stats:
+  {
+    count: length,
+    mean_hours: (mean | round2),
+    median_hours: (median | round2),
+    min_hours: (min_or_null | round2),
+    max_hours: (max_or_null | round2),
+    p75_hours: (percentile(0.75) | round2),
+    p90_hours: (percentile(0.90) | round2),
+    stdev_hours: (stdev | round2),
+
+    mean_days: ((mean / 24) | round2),
+    median_days: ((median / 24) | round2),
+
+    buckets: {
+      under_1h: (map(select(. < 1)) | length),
+      under_4h: (map(select(. < 4)) | length),
+      under_1d: (map(select(. < 24)) | length),
+      under_2d: (map(select(. < 48)) | length),
+      over_2d: (map(select(. >= 48)) | length)
+    }
+  };
+
+[
+  .[].data.search.nodes[]
+  | select(. != null)
+  | . as $pr
+
+  | (
+      [
+        $pr.reviews.nodes[]?
+        | select(.author.login == $reviewer)
+        | select(.state != "PENDING")
+        | {
+            kind: "review",
+            at: (.submittedAt // .createdAt),
+            state: .state,
+            url: .url
+          }
+      ]
+      +
+      (
+        if $formal_only then []
+        else
+          [
+            $pr.comments.nodes[]?
+            | select(.author.login == $reviewer)
+            | {
+                kind: "comment",
+                at: .createdAt,
+                state: "COMMENT",
+                url: .url
+              }
+          ]
+        end
+      )
+      | sort_by(.at)
+      | .[0]
+    ) as $first_activity
+
+  | (
+      [
+        $pr.reviews.nodes[]?
+        | select(.author.login == $reviewer)
+        | select(.state == "APPROVED")
+        | {
+            at: (.submittedAt // .createdAt),
+            state: .state,
+            url: .url
+          }
+      ]
+      | sort_by(.at)
+      | .[0]
+    ) as $first_approval
+
+  | select($first_activity != null)
+  | select($first_activity.at >= $start and $first_activity.at <= $end)
+
+  | {
+      pr: ("#" + ($pr.number | tostring)),
+      title: $pr.title,
+      url: $pr.url,
+      pr_created_at: $pr.createdAt,
+
+      first_reviewer_activity_at: $first_activity.at,
+      first_activity_type: $first_activity.kind,
+      first_activity_state: $first_activity.state,
+      first_activity_url: $first_activity.url,
+      hours_to_first_activity: (
+        (($first_activity.at | to_ts) - ($pr.createdAt | to_ts)) / 3600
+      ),
+
+      first_approval_at: ($first_approval.at // null),
+      first_approval_url: ($first_approval.url // null),
+      hours_to_first_approval: (
+        if $first_approval == null
+        then null
+        else (($first_approval.at | to_ts) - ($pr.createdAt | to_ts)) / 3600
+        end
+      )
+    }
+] as $rows
+
+| (
+    {
+      reviewer: $reviewer,
+      scope: $scope,
+      start: $start,
+      end: $end,
+      formal_only: $formal_only,
+
+      pr_count: ($rows | length),
+      approved_pr_count: (
+        $rows
+        | map(select(.hours_to_first_approval != null))
+        | length
+      ),
+
+      first_activity: (
+        $rows
+        | map(.hours_to_first_activity)
+        | duration_stats
+      ),
+
+      first_approval: (
+        $rows
+        | map(.hours_to_first_approval)
+        | map(select(. != null))
+        | duration_stats
+      )
+    }
+  ) as $stats
+
+| if $summary
+  then $stats
+  else $stats + { rows: $rows }
+  end
+'

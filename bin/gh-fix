@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Start a background Claude session that fixes a PR: merge conflicts,
+# failing workflows, and review comments, then pushes the fixes.
+#
+# Usage: gh fix [-R|--repo OWNER/REPO] <PR-number>
+#
+# Without --repo, the current directory's repository is used.
+# With --repo, the local clone is looked up at $GH_FIX_ROOT/<owner>/<repo>
+# (owner lowercased, GH_FIX_ROOT defaults to ~/code).
+#
+# The PR is not checked out here: the session checks it out in its own
+# worktree (.claude/worktrees/fix-pr-<PR>), so your working copy is untouched.
+#
+# Then:
+#   claude --bg --name "fix #<PR>" "/fix-pr <PR>"
+set -eo pipefail
+
+usage() {
+    grep '^#' "$0" | sed 's/^# \{0,1\}//' | tail -n +2
+}
+
+repo=""
+pr=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -R|--repo)
+            [[ $# -ge 2 ]] || { echo "error: $1 requires a value" >&2; exit 1; }
+            repo="$2"
+            shift 2
+            ;;
+        --repo=*|-R=*)
+            repo="${1#*=}"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo "error: unknown option $1" >&2
+            exit 1
+            ;;
+        *)
+            [[ -z "$pr" ]] || { echo "error: only one PR number is accepted" >&2; exit 1; }
+            pr="$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$pr" ]]; then
+    echo "error: no PR number given" >&2
+    usage >&2
+    exit 1
+fi
+[[ "$pr" =~ ^[0-9]+$ ]] || { echo "error: PR must be a number, got '$pr'" >&2; exit 1; }
+
+if [[ -n "$repo" ]]; then
+    [[ "$repo" == */* ]] || { echo "error: --repo must be OWNER/REPO" >&2; exit 1; }
+    owner=$(tr '[:upper:]' '[:lower:]' <<<"${repo%%/*}")
+    dir="${GH_FIX_ROOT:-$HOME/code}/$owner/${repo#*/}"
+    [[ -d "$dir" ]] || { echo "error: no local clone of $repo at $dir" >&2; exit 1; }
+    cd "$dir"
+else
+    top=$(git rev-parse --show-toplevel 2>/dev/null) \
+        || { echo "error: not in a git repository, pass --repo OWNER/REPO" >&2; exit 1; }
+    cd "$top"
+fi
+
+name=$(basename "$PWD")
+state=$(gh pr view "$pr" --json state --jq .state)
+[[ "$state" == "OPEN" ]] || { echo "error: PR #$pr is $state, nothing to fix" >&2; exit 1; }
+
+echo "==> $name: starting background fix of PR #$pr"
+claude --bg --name "fix #$pr" "/fix-pr $pr"

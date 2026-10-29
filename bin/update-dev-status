@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Writes the dev status payload consumed by the WezTerm status bar
+# (see the update-status handler in ~/.wezterm.lua).
+# Scheduled by launchd: ~/Library/LaunchAgents/com.user.dev-status.plist
+set -euo pipefail
+
+CACHE_DIR="$HOME/.cache/devstatus"
+OUT_FILE="$CACHE_DIR/status.json"
+
+mkdir -p "$CACHE_DIR"
+
+# Keep the temp file on the same filesystem as the target so the final mv is an
+# atomic rename: the status bar never reads a half-written payload.
+TMP_FILE="$(mktemp "$CACHE_DIR/.status.XXXXXX")"
+trap 'rm -f "$TMP_FILE"' EXIT
+
+# launchd does not load your shell config, so spell out where the tools live.
+#   ~/.local/bin      gh-prs, jira, twg
+#   /opt/homebrew/bin gh, jq, slack
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# Every metric falls back to "?" so an expired token or a network blip shows as
+# unknown rather than a confident, stale zero.
+pr_count="?"
+gh_notif="?"
+jira_payload=""
+jira_notif=0
+
+if command -v gh >/dev/null 2>&1; then
+  # Same logic as `gh prs` (default view): PRs needing my attention — reviews
+  # requested of me, plus my own PRs that are ready to ship or have failing CI.
+  pr_count="$(gh-prs --count 2>/dev/null || echo '?')"
+  gh_notif="$(gh api notifications --jq 'length' 2>/dev/null || echo '?')"
+fi
+
+if command -v jira >/dev/null 2>&1; then
+  # `jira status` owns the metric definitions and the colour bands; this script
+  # only relays what it publishes. It counts by status name rather than by
+  # statusCategory, which is the point: the category merges work in hand, work
+  # waiting on reviewers and blocked work into one number, and mixes the
+  # unrefined inbox into the To Do queue.
+  # The same call refreshes jira's own cache, which `jira --count` reads.
+  jira_payload="$(jira status --json 2>/dev/null || true)"
+fi
+
+if command -v twg >/dev/null 2>&1; then
+  # Atlassian notification feed (mentions, assignments, watched updates).
+  # Reads 0 on this account today, so it is rendered only when non-zero.
+  jira_notif="$(twg notifications --unread --output json --output-summary none \
+    --limit 50 2>/dev/null | jq -r '.meta.resultCount // 0' 2>/dev/null || echo 0)"
+fi
+
+# Slack, through the browser-session login (the workspace has no free app
+# slot): SLACK is the conversations with unreads, @ME the messages aimed at me,
+# that is DMs, group DMs, @-mentions in channels and in followed threads. It
+# reads Slack's own unread state and marks nothing as read. Both numbers come
+# from the slack CLI (~/code/denrou/slack), so conversations muted in Slack
+# stay out of the bar as they stay out of `slack`. @ME is the one that asks for
+# an answer, so a non-zero count is marked "act" and rendered as a badge.
+# `notifying` says the slack screen is open and posts its own notifications
+# for what @ME counts, so the SwiftBar plugin keeps quiet about them meanwhile.
+slack_group=""
+slack_notifying=false
+if command -v slack >/dev/null 2>&1; then
+  slack_json="$(slack --count --json 2>/dev/null || true)"
+  slack_group="$(printf '%s' "$slack_json" | jq -c '
+    [{label: "SLACK", value: (.unread | tostring), level: "none"},
+     {label: "@ME", value: (.me | tostring), level: (if .me > 0 then "act" else "none" end)}]
+  ' 2>/dev/null || true)"
+  if [[ "$(printf '%s' "$slack_json" | jq '.notifying' 2>/dev/null)" == true ]]; then
+    slack_notifying=true
+  fi
+fi
+
+# Empty output means the CLI failed (expired session, rate limit), not an
+# empty inbox: `slack --count` exits non-zero then.
+if [[ -z "$slack_group" ]]; then
+  slack_group='[{"label":"SLACK","value":"?","level":"unknown"},
+                {"label":"@ME","value":"?","level":"unknown"}]'
+fi
+
+# One entry per metric, in render order. A metric jira marks hidden (BLK at
+# zero) is dropped here rather than in Lua, so the bar carries only what has
+# something to say.
+jira_group="$(printf '%s' "$jira_payload" | jq -c '
+  . as $root
+  | [["WIP","wip"], ["REV","rev"], ["BLK","blk"], ["TODO","todo"]]
+  | map(
+      . as [$label, $key]
+      | ($root.metrics[$key] // null) as $metric
+      | if $metric == null then {label: $label, value: "?", level: "unknown"}
+        elif ($metric.hidden // false) then empty
+        else {label: $label, value: ($metric.value | tostring), level: ($metric.level // "none")}
+        end
+    )' 2>/dev/null || true)"
+
+# An unreadable payload means the lookup broke, not that there is no work.
+if [[ -z "$jira_group" ]]; then
+  jira_group='[{"label":"WIP","value":"?","level":"unknown"},
+               {"label":"REV","value":"?","level":"unknown"},
+               {"label":"BLK","value":"?","level":"unknown"},
+               {"label":"TODO","value":"?","level":"unknown"}]'
+fi
+
+jq -n \
+  --arg pr "$pr_count" \
+  --arg gh "$gh_notif" \
+  --arg notif "$jira_notif" \
+  --argjson jira "$jira_group" \
+  --argjson slack "$slack_group" \
+  --argjson slack_notifying "$slack_notifying" \
+  --argjson epoch "$(date +%s)" '
+  # $level applies only to a non-zero count: a zero asks nothing of me.
+  def cell($label; $value; $level):
+    {label: $label, value: $value,
+     level: (if $value == "?" then "unknown" elif $value == "0" then "none" else $level end)};
+  # The product names the logo the bar draws.
+  {
+    epoch: $epoch,
+    groups: [
+      {product: "github", metrics: [cell("PR"; $pr; "act"), cell("GH"; $gh; "none")]},
+      {product: "jira", metrics: ($jira + (if ($notif | test("^[1-9][0-9]*$"))
+                                          then [{label: "JIRA", value: $notif, level: "warn"}]
+                                          else [] end))},
+      {product: "slack", metrics: $slack, notifying: $slack_notifying}
+    ]
+  }' > "$TMP_FILE"
+
+mv "$TMP_FILE" "$OUT_FILE"

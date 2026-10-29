@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Check out a PR and start a background Claude session that reviews it.
+#
+# Usage: gh review [-R|--repo OWNER/REPO] [-c|--context TEXT] [gh pr checkout options] <PR-number>
+#
+# Without --repo, the current directory's repository is used.
+# --context passes extra information to the reviewer (focus, background, known
+# trade-offs); repeat it to add several pieces.
+# With --repo, the local clone is looked up at $GH_REVIEW_ROOT/<owner>/<repo>
+# (owner lowercased, GH_REVIEW_ROOT defaults to ~/code).
+#
+# Then:
+#   gh pr checkout [options] <PR>
+#   claude --bg --name "review #<PR>" "/centreon-core:check-pr <PR> [context]"
+set -eo pipefail
+
+usage() {
+    grep '^#' "$0" | sed 's/^# \{0,1\}//' | tail -n +2
+}
+
+repo=""
+context=()
+checkout_flags=()
+pr=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -R|--repo)
+            [[ $# -ge 2 ]] || { echo "error: $1 requires a value" >&2; exit 1; }
+            repo="$2"
+            shift 2
+            ;;
+        --repo=*|-R=*)
+            repo="${1#*=}"
+            shift
+            ;;
+        -c|--context)
+            [[ $# -ge 2 ]] || { echo "error: $1 requires a value" >&2; exit 1; }
+            context+=("$2")
+            shift 2
+            ;;
+        --context=*|-c=*)
+            context+=("${1#*=}")
+            shift
+            ;;
+        -b|--branch)
+            [[ $# -ge 2 ]] || { echo "error: $1 requires a value" >&2; exit 1; }
+            checkout_flags+=("$1" "$2")
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            checkout_flags+=("$1")
+            shift
+            ;;
+        *)
+            [[ -z "$pr" ]] || { echo "error: only one PR number is accepted" >&2; exit 1; }
+            pr="$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$pr" ]]; then
+    echo "error: no PR number given" >&2
+    usage >&2
+    exit 1
+fi
+
+if [[ -n "$repo" ]]; then
+    [[ "$repo" == */* ]] || { echo "error: --repo must be OWNER/REPO" >&2; exit 1; }
+    owner=$(tr '[:upper:]' '[:lower:]' <<<"${repo%%/*}")
+    dir="${GH_REVIEW_ROOT:-$HOME/code}/$owner/${repo#*/}"
+    [[ -d "$dir" ]] || { echo "error: no local clone of $repo at $dir" >&2; exit 1; }
+    cd "$dir"
+else
+    top=$(git rev-parse --show-toplevel 2>/dev/null) \
+        || { echo "error: not in a git repository, pass --repo OWNER/REPO" >&2; exit 1; }
+    cd "$top"
+fi
+
+name=$(basename "$PWD")
+echo "==> $name: checking out PR #$pr"
+gh pr checkout ${checkout_flags[@]+"${checkout_flags[@]}"} "$pr"
+echo "==> $name: starting background review of PR #$pr"
+prompt="/centreon-core:check-pr $pr"
+if [[ ${#context[@]} -gt 0 ]]; then
+    prompt+=$'\n\nAdditional context from the reviewer:'
+    for c in "${context[@]}"; do
+        prompt+=$'\n- '"$c"
+    done
+fi
+claude --bg --name "review #$pr" "$prompt"

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# showmd report/03-results.md   -> preview one file
+# showmd report/*.md            -> preview all files, concatenated in glob order
+# Rebuilds on any change in the first file's directory.
+if [ "$#" -eq 0 ]; then
+  echo "usage: showmd FILE.md [FILE.md ...]" >&2
+  exit 1
+fi
+out="${TMPDIR:-/tmp}/preview.html"
+if [ "$#" -eq 1 ]; then
+  title="$(basename "$1")"
+else
+  title="$(basename "$(cd "$(dirname "$1")" && pwd)")"
+fi
+build() {
+  pandoc "$@" --standalone --embed-resources \
+    --metadata title="$title" \
+    -o "$out"
+}
+build "$@" && open "$out"
+fswatch -o "$(dirname "$1")" | while read -r _; do build "$@"; done

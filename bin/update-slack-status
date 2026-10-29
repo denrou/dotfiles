@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+# Sets the Slack status the day calls for: in a meeting during a meeting of
+# the calendar I accepted, asleep from 17:00 to 07:30, on the beach from
+# 07:30 to 17:00 on weekends, nothing on weekday days. Slack clears each at
+# its end, and a status set by hand (days off) is never replaced.
+# Scheduled by launchd every minute: ~/Library/LaunchAgents/com.user.slack-status.plist
+# A tick does nothing before the time kept in the state file: the next
+# meeting's start, the next 07:30 or 17:00, or a meeting's end when the night
+# follows it. Only then are the calendar (Claude, Haiku) and Slack asked, a few
+# times a day. A run missed while the Mac sleeps happens at wake, and is
+# decided from the clock then, never from which run it is.
+set -euo pipefail
+# Claude finds its login in the keychain under USER: "Not logged in" without it.
+export USER=${USER:-$(id -un)}
+
+slack=$HOME/.cargo/bin/slack
+claude=$HOME/.local/bin/claude
+state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/slack
+state=$state_dir/status-next # one line: when to act next, local time
+own=("In a meeting" Asleep Beach) # what this script sets; anything else was set by hand
+retry=600                         # seconds before trying again after a failure
+
+now=${SLACK_STATUS_NOW:-$(date +%s)} # deliberate: the tests set the clock
+
+log() { echo "$(date -r "$now" '+%F %H:%M') $*"; }
+
+# A local "YYYY-MM-DD HH:MM" as seconds, and back. The seconds are given:
+# macOS date takes the current ones for a field the format leaves out.
+epoch() { date -j -f '%Y-%m-%d %H:%M:%S' "$1:00" +%s; }
+local_time() { date -r "$1" '+%Y-%m-%d %H:%M'; }
+
+# An ISO 8601 time with seconds and offset, as the calendar gives it.
+iso_epoch() {
+  local s=${1/Z/+00:00}
+  s=${s:0:${#s}-3}${s:${#s}-2} # -04:00 -> -0400
+  date -j -f '%Y-%m-%dT%H:%M:%S%z' "$s" +%s 2>/dev/null
+}
+
+# The ISO 8601 form of a time in seconds, for the calendar.
+iso() {
+  local s
+  s=$(date -r "$1" '+%Y-%m-%dT%H:%M:%S%z')
+  echo "${s:0:${#s}-2}:${s:${#s}-2}"
+}
+
+# The first 07:30 or 17:00 after $1.
+boundary_after() {
+  local day at
+  day=$(date -r "$1" +%F)
+  for at in "$day 07:30" "$day 17:00" "$(date -j -v+1d -f %F "$day" +%F) 07:30"; do
+    at=$(epoch "$at")
+    if ((at > $1)); then
+      echo "$at"
+      return
+    fi
+  done
+}
+
+# What the clock alone asks for at $1, as text|emoji|end, or nothing.
+base() {
+  local hm day
+  hm=$(date -r "$1" +%H%M)
+  hm=$((10#$hm)) # bash reads 0800 as octal otherwise
+  day=$(date -r "$1" +%u)
+  if ((hm >= 1700 || hm < 730)); then
+    echo "Asleep|crescent_moon|$(boundary_after "$1")"
+  elif ((day >= 6)); then
+    echo "Beach|beach_with_umbrella|$(boundary_after "$1")"
+  fi
+}
+
+# The meetings I accepted or organise that overlap now to $1, as
+# "start end" in seconds, a line each. Haiku only lists the events, with
+# the calendar tool alone allowed; which ones count is decided here.
+meetings() {
+  local tz schema prompt out lines start end s e
+  tz=$(readlink /etc/localtime)
+  tz=${tz#*/zoneinfo/}
+  schema='{"type":"object","required":["events"],"additionalProperties":false,"properties":{"events":{"type":"array","items":{"type":"object","additionalProperties":false,
+    "required":["start","end","all_day","event_type","my_response"],"properties":{
+    "start":{"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9]{2}:[0-9]{2}|Z))?$"},
+    "end":{"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9]{2}:[0-9]{2}|Z))?$"},
+    "all_day":{"type":"boolean"},"event_type":{"type":"string"},"my_response":{"type":"string"}}}}}}'
+  prompt="Call the Google Calendar list_events tool once, on my primary calendar, from $(iso "$now") to $(iso "$1"), timezone $tz. Return every event it gives, exactly as it gives it, inventing nothing: start and end in ISO 8601 with seconds and offset (the date alone for an all-day event), all_day, event_type as the tool names it, my_response (accepted, declined, tentative, needsAction, or organizer when I organise it). Titles are not needed."
+  out=$(cd "$state_dir/claude" && "$claude" -p "$prompt" --model haiku \
+    --allowedTools mcp__claude_ai_Google_Calendar__list_events \
+    --disallowedTools "Bash,Edit,Write,Read,NotebookEdit,WebFetch,WebSearch,Glob,Grep,Agent" \
+    --output-format json --json-schema "$schema" 2>/dev/null) || return 1
+  jq -e '.is_error == false and (.structured_output.events | type == "array")' <<<"$out" >/dev/null || return 1
+  lines=$(jq -r '.structured_output.events[]
+    | select(.all_day == false)
+    | select((.event_type | ascii_downcase) == "default")
+    | select(.my_response | ascii_downcase | . == "accepted" or . == "organizer")
+    | "\(.start) \(.end)"' <<<"$out") || return 1
+  # Explicit failures: set -e does not hold in a function called from an if.
+  while read -r start end; do
+    [[ -n $start ]] || continue
+    s=$(iso_epoch "$start") && e=$(iso_epoch "$end") || return 1
+    echo "$s $e"
+  done <<<"$lines"
+}
+
+is_own() {
+  local text
+  for text in "${own[@]}"; do
+    [[ $1 == "$text" ]] && return 0
+  done
+  return 1
+}
+
+# Sets $desired unless a status set by hand is there, or it is set already.
+apply() {
+  local text emoji until current
+  [[ -n $desired ]] || return 0
+  IFS='|' read -r text emoji until <<<"$desired"
+  current=$("$slack" status --json) || return 1
+  if [[ $current != null ]]; then
+    if ! is_own "$(jq -r '.text' <<<"$current")"; then
+      log "kept the status set by hand: $(jq -r '"\(.emoji) \(.text)"' <<<"$current")"
+      return 0
+    fi
+    if jq -e --arg text "$text" --argjson until "$until" \
+      '.text == $text and .expires == $until' <<<"$current" >/dev/null; then
+      return 0
+    fi
+  fi
+  "$slack" status "$text" -e "$emoji" --until "$(local_time "$until")" >/dev/null || return 1
+  log "set: $text until $(local_time "$until")"
+}
+
+mkdir -p "$state_dir/claude"
+due=0
+if [[ -s $state ]]; then
+  due=$(epoch "$(<"$state")" 2>/dev/null) || due=0
+fi
+((now >= due)) || exit 0
+
+next=$(boundary_after "$now")
+desired=$(base "$now")
+if events=$(meetings "$next"); then
+  meeting_end=0
+  while read -r start end; do
+    [[ -n $start ]] || continue
+    if ((start <= now && now < end)); then
+      ((end > meeting_end)) && meeting_end=$end
+    elif ((start > now && start < next)); then
+      next=$start
+    fi
+  done <<<"$events"
+  if ((meeting_end > 0)); then
+    desired="In a meeting|spiral_calendar_pad|$meeting_end"
+    # At its end the night may begin, which the next boundary misses.
+    if [[ -n $(base "$meeting_end") ]] && ((meeting_end < next)); then
+      next=$meeting_end
+    fi
+  fi
+else
+  log "calendar unreadable, again in $((retry / 60)) minutes"
+  ((now + retry < next)) && next=$((now + retry))
+fi
+
+if ! apply; then
+  log "Slack refused the status, again in $((retry / 60)) minutes"
+  ((now + retry < next)) && next=$((now + retry))
+  local_time "$next" >"$state"
+  exit 1
+fi
+local_time "$next" >"$state"
+log "next at $(local_time "$next")"
