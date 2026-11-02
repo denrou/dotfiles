@@ -69,7 +69,7 @@ _log_startup() {
   strftime -s stamp '%F %T' $EPOCHSECONDS
   printf '%s  total %5.0fms  env+profile %4.0f  zshrc %4.0f  prompt %4.0f  %s\n' $stamp \
     $(( (now - _zsh_t0) * 1000 )) $(( (_zsh_t1 - _zsh_t0) * 1000 )) \
-    $(( (_zsh_t2 - _zsh_t1) * 1000 )) $(( (now - _zsh_t2) * 1000 )) ${PWD/#$HOME/~} \
+    $(( (_zsh_t2 - _zsh_t1) * 1000 )) $(( (now - _zsh_t2) * 1000 )) ${PWD/#$HOME/\~} \
     >> ~/.cache/zsh-startup.log
 }
 autoload -Uz add-zle-hook-widget && add-zle-hook-widget line-init _log_startup
