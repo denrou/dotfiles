@@ -22,3 +22,10 @@ brew() {
 }
 
 brew update > /dev/null && brew upgrade > /dev/null
+
+# New shells load the completion dump without checking it (compinit -C in .zshrc),
+# so rebuild it here, even when brew failed: completions also come from outside brew.
+# A login shell gets the same fpath as a WezTerm tab; the mv keeps a tab opened
+# meanwhile from reading a half-written dump.
+zsh -lc 'autoload -Uz compinit && compinit -d ~/.zcompdump.new' &&
+  mv ~/.zcompdump.new ~/.zcompdump

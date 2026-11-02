@@ -1,11 +1,27 @@
-eval "$(starship init zsh)"
-eval "$(direnv hook zsh)"
-eval "$(zoxide init zsh)"
-eval "$(rbenv init - zsh)"
+# Source a tool's init script from a cache instead of running the tool on every
+# new shell. Keyed on the resolved binary path, not its date: Homebrew keeps the
+# bottle's mtimes, so an upgrade shows up as a new Cellar path.
+_cached_eval() {  # name, binary, init command...
+  local cache=~/.cache/zsh/$1.zsh bin=${commands[$2]:A} line; shift 2
+  [[ -r $cache ]] && read -r line < $cache
+  if [[ $line != "# $bin" ]]; then
+    mkdir -p ${cache:h}
+    { print -r -- "# $bin"; "$@" } >| $cache
+  fi
+  source $cache
+}
+_cached_eval starship starship starship init zsh --print-full-init
+_cached_eval direnv direnv direnv hook zsh
+_cached_eval zoxide zoxide zoxide init zsh
+
+# Deliberate: shims only, no `rbenv init`, which runs `rbenv rehash` on every new
+# shell. Run `rbenv rehash` after a `gem install` that adds a command.
+export PATH="$HOME/.rbenv/shims:$PATH"
 
 export PATH="$HOME/.local/bin:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 
-autoload -Uz compinit && compinit
+# Deliberate: -C trusts the dump as is; bin/brew-upgrade rebuilds it every 4 hours.
+autoload -Uz compinit && compinit -C
 autoload -Uz bashcompinit && bashcompinit
 
 complete -C '/usr/local/bin/aws_completer' aws
