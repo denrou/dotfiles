@@ -1,3 +1,6 @@
+zmodload zsh/datetime
+typeset -g _zsh_t1=$EPOCHREALTIME
+
 # Source a tool's init script from a cache instead of running the tool on every
 # new shell. Keyed on the resolved binary path, not its date: Homebrew keeps the
 # bottle's mtimes, so an upgrade shows up as a new Cellar path.
@@ -54,3 +57,19 @@ bindkey "^[[F" end-of-line
 tmux-keybindings() {
   comm -23 <(tmux list-keys | sort) <(tmux -L defaults -f /dev/null list-keys | sort)
 }
+
+# Startup-time log: one line per new interactive shell in ~/.cache/zsh-startup.log,
+# from the first line of ~/.zshenv to the first prompt ready for input. A slow tab
+# with a fast line here means the time goes before zsh starts, not in zsh.
+typeset -g _zsh_t2=$EPOCHREALTIME
+_log_startup() {
+  add-zle-hook-widget -d line-init _log_startup
+  (( ${+_zsh_t0} )) || return  # ~/.zshenv not sourced, e.g. another ZDOTDIR
+  local now=$EPOCHREALTIME stamp
+  strftime -s stamp '%F %T' $EPOCHSECONDS
+  printf '%s  total %5.0fms  env+profile %4.0f  zshrc %4.0f  prompt %4.0f  %s\n' $stamp \
+    $(( (now - _zsh_t0) * 1000 )) $(( (_zsh_t1 - _zsh_t0) * 1000 )) \
+    $(( (_zsh_t2 - _zsh_t1) * 1000 )) $(( (now - _zsh_t2) * 1000 )) ${PWD/#$HOME/~} \
+    >> ~/.cache/zsh-startup.log
+}
+autoload -Uz add-zle-hook-widget && add-zle-hook-widget line-init _log_startup
