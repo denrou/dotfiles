@@ -15,7 +15,6 @@ in `claude-config`, not here.
   over a period.
 - `bin/spellcheck` — correct the spelling and grammar of a text through the Claude API.
 - `bin/showmd` — live HTML preview of Markdown files with pandoc.
-- `bin/git-commit-openai.sh` — draft a conventional commit message from the staged diff.
 - `bin/brew-upgrade` — `brew upgrade` that logs each version change, every 4 hours
   (`launchd/com.user.brew-upgrade.plist`).
 - `bin/update-dev-status` — PR, notification and Jira counters for the WezTerm status bar, every
