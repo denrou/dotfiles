@@ -23,6 +23,10 @@ in `claude-config`, not here.
   (`gh merges`, the `prs` and `notifications` aliases below, and `jira`).
 - `bin/dev-status-claude-hook` — the same from Claude sessions, as a Claude Code hook: after a Jira
   write through the Atlassian MCP, or a PR reviewed, merged, closed or marked ready with `gh`.
+- `bin/claude-agent-notify` — a SwiftBar notification when a session of `claude agents` ends its
+  turn or waits on a permission or a question, as a Claude Code hook. Foreground sessions are
+  skipped. It also refreshes `~/.config/swiftbar/claude-agents.30s.sh`, the menu-bar
+  count of those sessions.
 - `bin/update-slack-status` — set the Slack status from the calendar, every minute
   (`launchd/com.user.slack-status.plist`).
 
@@ -62,6 +66,21 @@ hook in `~/.claude/settings.json`, under `hooks`:
     "hooks": [
       { "type": "command", "command": "~/.local/bin/dev-status-claude-hook", "timeout": 10 }
     ]
+  }
+]
+```
+
+The agent notifications go through these two hooks, in the same place. `idle_prompt` is left out
+on purpose: it fires a minute after `Stop` and would notify the same turn twice.
+
+```json
+"Stop": [
+  { "hooks": [{ "type": "command", "command": "~/.local/bin/claude-agent-notify", "timeout": 10 }] }
+],
+"Notification": [
+  {
+    "matcher": "permission_prompt|elicitation_dialog",
+    "hooks": [{ "type": "command", "command": "~/.local/bin/claude-agent-notify", "timeout": 10 }]
   }
 ]
 ```

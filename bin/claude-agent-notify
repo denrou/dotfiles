@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Claude Code Stop and Notification hook: a SwiftBar notification when a
+# background agent session ends its turn or waits on a permission or a question,
+# then a refresh of the claude-agents menu-bar count. Wired in
+# ~/.claude/settings.json (see README).
+set -uo pipefail
+export PATH="/opt/homebrew/bin:/usr/bin:/bin"
+
+# Deliberate: only background sessions run under a job directory. A foreground
+# session ends a turn in the terminal in front of me, a notification would be noise.
+[[ -n "${CLAUDE_JOB_DIR:-}" ]] || exit 0
+pgrep -xq SwiftBar || exit 0
+
+input="$(cat)"
+
+name="$(jq -r '.name // empty' "$CLAUDE_JOB_DIR/state.json" 2>/dev/null)"
+[[ -n "$name" ]] || name="$(basename "$(jq -r '.cwd // "Claude"' <<<"$input")")"
+
+# Last paragraph of the last answer: the question when there is one, the summary otherwise.
+last_paragraph() {
+  local text
+  text="$(jq -r '.last_assistant_message // empty' <<<"$input")"
+  if [[ -z "$text" ]]; then
+    text="$(jq -rs '[.[] | select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text]
+      | last // empty' "$(jq -r '.transcript_path // empty' <<<"$input")" 2>/dev/null)"
+  fi
+  awk 'NF { p = $0 } END { print p }' <<<"$text" | tr -d '*`' | cut -c1-200
+}
+
+case "$(jq -r '.hook_event_name // empty' <<<"$input")" in
+  Stop)
+    [[ "$(jq -r '.stop_hook_active // false' <<<"$input")" == true ]] && exit 0
+    subtitle="Turn finished"
+    body="$(last_paragraph)"
+    ;;
+  Notification)
+    subtitle="Needs you"
+    body="$(jq -r '.message // empty' <<<"$input")"
+    ;;
+  *) exit 0 ;;
+esac
+
+open -g "$(jq -rn --arg t "$name" --arg s "$subtitle" --arg b "$body" '
+  "swiftbar://notify?plugin=claude-agents&title=\($t | @uri)&subtitle=\($s | @uri)&body=\($b | @uri)"')"
+
+# The session updates its own state right after the hook returns: give it a
+# moment before the count is read again.
+(sleep 3 && open -g "swiftbar://refreshplugin?name=claude-agents") >/dev/null 2>&1 &
+exit 0
