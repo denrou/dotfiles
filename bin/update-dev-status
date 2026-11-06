@@ -31,7 +31,10 @@ if command -v gh >/dev/null 2>&1; then
   # Same logic as `gh prs` (default view): PRs needing my attention — reviews
   # requested of me, plus my own PRs that are ready to ship or have failing CI.
   pr_count="$(gh-prs --count 2>/dev/null || echo '?')"
-  gh_notif="$(gh api notifications --jq 'length' 2>/dev/null || echo '?')"
+  # GitHub returns at most 50 notifications per page, so sum every page.
+  if pages="$(gh api --paginate notifications --jq 'length' 2>/dev/null)"; then
+    gh_notif="$(awk '{n += $1} END {print n + 0}' <<<"$pages")"
+  fi
 fi
 
 if command -v jira >/dev/null 2>&1; then
