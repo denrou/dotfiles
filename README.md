@@ -25,8 +25,10 @@ in `claude-config`, not here.
   write through the Atlassian MCP, or a PR reviewed, merged, closed or marked ready with `gh`.
 - `bin/claude-agent-notify` — a SwiftBar notification when a session of `claude agents` ends its
   turn or waits on a permission or a question, as a Claude Code hook. Foreground sessions are
-  skipped. It also refreshes `~/.config/swiftbar/claude-agents.30s.sh`, the menu-bar
-  count of those sessions.
+  skipped. It also refreshes `~/.config/swiftbar/claude-agents.30s.sh`, the menu-bar count of
+  the sessions that need me (a question, or a result not checked yet), and clears the park mark
+  that plugin leaves in `~/.cache/claude-agents/seen/` when I click a session I have read but
+  cannot act on yet.
 - `bin/update-slack-status` — set the Slack status from the calendar, every minute
   (`launchd/com.user.slack-status.plist`).
 
