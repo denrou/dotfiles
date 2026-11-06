@@ -20,7 +20,7 @@ in `claude-config`, not here.
 - `bin/update-dev-status` — PR, notification, Jira and Slack counters for the WezTerm status bar
   and the SwiftBar menu, every 5 minutes (`launchd/com.user.dev-status.plist`).
 - `bin/dev-status-refresh` — rerun `update-dev-status` now, after a command that changed a count
-  (`gh merges`, and the `prs` and `notifications` aliases below).
+  (`gh merges`, the `prs` and `notifications` aliases below, and `jira`).
 - `bin/update-slack-status` — set the Slack status from the calendar, every minute
   (`launchd/com.user.slack-status.plist`).
 
@@ -41,4 +41,11 @@ bars after a command that changes a count (`--on-change` needs gh-notifications 
 ```bash
 gh alias set --clobber prs '!gh-prs "$@"; s=$?; case "$1" in merge|snooze|unsnooze|hide|unhide) ~/.local/bin/dev-status-refresh;; esac; exit $s'
 gh alias set --clobber notifications '!gh-notifications --on-change ~/.local/bin/dev-status-refresh "$@"'
+```
+
+`jira` (denrou/jira 0.5.0 or later) does the same after a move or an assignment, through this key in
+`~/.config/jira/config.json`:
+
+```json
+"on_change": "~/.local/bin/dev-status-refresh"
 ```
