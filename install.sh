@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Symlink the shell config and personal scripts into place, copy the launchd agents.
+# Symlink the shell config, personal scripts and SwiftBar plugins into place, copy
+# the launchd agents.
 # Idempotent; never overwrites a real file.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$HOME/.local/bin"
+# SwiftBar's plugin directory, set in its preferences.
+SWIFTBAR="$HOME/.config/swiftbar"
 
 link() {
   local src="$1" dst="$2"
@@ -26,6 +29,11 @@ for f in "$REPO"/bin/*; do
   link "$f" "$BIN/$(basename "$f")"
 done
 
+for f in "$REPO"/swiftbar/*; do
+  [ -e "$f" ] || continue
+  link "$f" "$SWIFTBAR/$(basename "$f")"
+done
+
 # launchd does not reliably follow symlinked agents: copy each plist, then (re)load it.
 for src in "$REPO"/launchd/*.plist; do
   [ -e "$src" ] || continue
@@ -42,7 +50,7 @@ done
 
 # Prune symlinks left behind by scripts removed from the repo: only symlinks, only
 # those pointing into this repo, only when the target is gone.
-for l in "$BIN"/*; do
+for l in "$BIN"/* "$SWIFTBAR"/*; do
   [[ -L "$l" ]] || continue
   target="$(readlink "$l")"
   case "$target" in "$REPO"/*) ;; *) continue ;; esac

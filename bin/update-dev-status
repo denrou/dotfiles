@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Writes the dev status payload read by the WezTerm status bar (the update-status
-# handler in ~/.wezterm.lua) and the SwiftBar plugin (~/.config/swiftbar/devstatus.1m.sh).
+# handler in ~/.wezterm.lua) and the SwiftBar plugin (swiftbar/devstatus.1m.sh).
 # Run by launchd every 5 minutes (~/Library/LaunchAgents/com.user.dev-status.plist),
 # and right away by dev-status-refresh after a command that changed a count.
 set -euo pipefail

@@ -11,7 +11,7 @@ export PATH="/opt/homebrew/bin:/usr/bin:/bin"
 [[ -n "${CLAUDE_JOB_DIR:-}" ]] || exit 0
 
 # A session parked from the menu (read, nothing to do yet) needs me again once it
-# moves. Same directory as in ~/.config/swiftbar/claude-agents.30s.sh.
+# moves. Same directory as in swiftbar/claude-agents.30s.sh.
 rm -f "$HOME/.cache/claude-agents/seen/$(basename "$CLAUDE_JOB_DIR")"
 
 pgrep -xq SwiftBar || exit 0
