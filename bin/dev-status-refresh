@@ -2,8 +2,9 @@
 # Rerun update-dev-status now rather than at its next 5-minute tick, after a
 # command that changed a count: the `prs` gh alias (merge, snooze, unsnooze,
 # hide, unhide), gh-merges, gh-notifications through the `notifications` alias
-# (--on-change), and jira (on_change in ~/.config/jira/config.json). Returns at
-# once; the bars follow a few seconds later.
+# (--on-change), jira (on_change in ~/.config/jira/config.json), and Claude
+# sessions (dev-status-claude-hook). Returns at once; the bars follow a few
+# seconds later.
 set -uo pipefail
 
 job="gui/$(id -u)/com.user.dev-status"

@@ -21,6 +21,8 @@ in `claude-config`, not here.
   and the SwiftBar menu, every 5 minutes (`launchd/com.user.dev-status.plist`).
 - `bin/dev-status-refresh` — rerun `update-dev-status` now, after a command that changed a count
   (`gh merges`, the `prs` and `notifications` aliases below, and `jira`).
+- `bin/dev-status-claude-hook` — the same from Claude sessions, as a Claude Code hook: after a Jira
+  write through the Atlassian MCP, or a PR reviewed, merged, closed or marked ready with `gh`.
 - `bin/update-slack-status` — set the Slack status from the calendar, every minute
   (`launchd/com.user.slack-status.plist`).
 
@@ -48,4 +50,18 @@ gh alias set --clobber notifications '!gh-notifications --on-change ~/.local/bin
 
 ```json
 "on_change": "~/.local/bin/dev-status-refresh"
+```
+
+Claude sessions (`/work`, `/work-sync`, a review posted by `gh review`'s session) go through this
+hook in `~/.claude/settings.json`, under `hooks`:
+
+```json
+"PostToolUse": [
+  {
+    "matcher": "Bash|mcp__claude_ai_Atlassian_MCP__.*",
+    "hooks": [
+      { "type": "command", "command": "~/.local/bin/dev-status-claude-hook", "timeout": 10 }
+    ]
+  }
+]
 ```

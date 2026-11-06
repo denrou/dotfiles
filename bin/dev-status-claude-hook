@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Claude Code PostToolUse hook: refresh the status bars when a Claude session
+# changed a count, which happens outside the tools that refresh by themselves
+# (gh-prs, gh merges, gh-notifications, jira): /work and /work-sync move tickets
+# through the Atlassian MCP, and reviews and merges go through plain gh.
+# Wired in ~/.claude/settings.json on Bash and the Atlassian MCP (see README).
+set -uo pipefail
+
+input="$(cat)"
+
+refresh() {
+  "$(dirname "$0")/dev-status-refresh"
+  exit 0
+}
+
+case "$(jq -r '.tool_name // empty' <<<"$input")" in
+  mcp__claude_ai_Atlassian_MCP__transitionJiraIssue | \
+    mcp__claude_ai_Atlassian_MCP__editJiraIssue | \
+    mcp__claude_ai_Atlassian_MCP__createJiraIssue | \
+    mcp__claude_ai_Atlassian_MCP__executeWrite | \
+    mcp__claude_ai_Atlassian_MCP__executeDestructive)
+    refresh
+    ;;
+  Bash) ;;
+  *) exit 0 ;;
+esac
+
+command="$(jq -r '.tool_input.command // empty' <<<"$input")"
+case "$command" in
+  *"gh pr review"* | *"gh pr merge"* | *"gh pr close"* | *"gh pr reopen"* | *"gh pr ready"*)
+    refresh
+    ;;
+  *"gh api"*/pulls/*/reviews* | *"gh api"*/pulls/*/merge*)
+    # Deliberate: fix-pr and check-pr read reviews all the time, and only a
+    # write moves a count.
+    case "$command" in
+      *POST* | *PUT* | *" -f "* | *" -F "* | *--field* | *--raw-field* | *--input*) refresh ;;
+    esac
+    ;;
+esac
+exit 0
