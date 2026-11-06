@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Rerun update-dev-status now rather than at its next 5-minute tick, after a
 # command that changed a count: the `prs` gh alias (merge, snooze, unsnooze,
-# hide, unhide) and gh-merges. Returns at once; the bars follow a few seconds
-# later.
+# hide, unhide), gh-merges, and gh-notifications through the `notifications`
+# alias (--on-change). Returns at once; the bars follow a few seconds later.
 set -uo pipefail
 
 job="gui/$(id -u)/com.user.dev-status"
