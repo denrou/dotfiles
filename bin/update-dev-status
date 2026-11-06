@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Writes the dev status payload consumed by the WezTerm status bar
-# (see the update-status handler in ~/.wezterm.lua).
-# Scheduled by launchd: ~/Library/LaunchAgents/com.user.dev-status.plist
+# Writes the dev status payload read by the WezTerm status bar (the update-status
+# handler in ~/.wezterm.lua) and the SwiftBar plugin (~/.config/swiftbar/devstatus.1m.sh).
+# Run by launchd every 5 minutes (~/Library/LaunchAgents/com.user.dev-status.plist),
+# and right away by dev-status-refresh after a command that changed a count.
 set -euo pipefail
 
 CACHE_DIR="$HOME/.cache/devstatus"
@@ -15,8 +16,8 @@ TMP_FILE="$(mktemp "$CACHE_DIR/.status.XXXXXX")"
 trap 'rm -f "$TMP_FILE"' EXIT
 
 # launchd does not load your shell config, so spell out where the tools live.
-#   ~/.local/bin      gh-prs, jira, twg
-#   /opt/homebrew/bin gh, jq, slack
+#   ~/.local/bin      jira, twg
+#   /opt/homebrew/bin gh, gh-prs, slack
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 # Every metric falls back to "?" so an expired token or a network blip shows as
@@ -127,3 +128,9 @@ jq -n \
   }' > "$TMP_FILE"
 
 mv "$TMP_FILE" "$OUT_FILE"
+
+# SwiftBar rereads the payload once a minute, WezTerm every second: refresh the
+# plugin now so both bars move together, without starting a SwiftBar that was quit.
+if pgrep -xq SwiftBar; then
+  open -g "swiftbar://refreshplugin?name=devstatus"
+fi

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Rerun update-dev-status now rather than at its next 5-minute tick, after a
+# command that changed a count: the `prs` gh alias (merge, snooze, unsnooze,
+# hide, unhide) and gh-merges. Returns at once; the bars follow a few seconds
+# later.
+set -uo pipefail
+
+job="gui/$(id -u)/com.user.dev-status"
+
+# Deliberate: a run already in flight may have read the counts before the
+# change, so wait for it to end and start another, rather than kill it
+# (kickstart -k) halfway through a Jira, Atlassian or Slack call.
+{
+  for _ in {1..60}; do
+    [[ "$(launchctl print "$job" 2>/dev/null)" == *"state = running"* ]] || break
+    sleep 1
+  done
+  launchctl kickstart "$job"
+} </dev/null >/dev/null 2>&1 &

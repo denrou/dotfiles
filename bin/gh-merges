@@ -53,6 +53,10 @@ if [[ ${#prs[@]} -eq 0 ]]; then
     exit 1
 fi
 
+# An approval alone changes the PR count, so refresh the status bars even when a
+# merge fails.
+trap '"$(dirname "$0")/dev-status-refresh"' EXIT
+
 for pr in "${prs[@]}"; do
     echo "==> PR #$pr: approving"
     gh pr review --approve "$pr" ${repo_args[@]+"${repo_args[@]}"}
