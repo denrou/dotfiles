@@ -1,7 +1,7 @@
 # dotfiles
 
-My shell config and the small scripts I keep in `~/.local/bin`. Claude Code rules and skills live
-in `claude-config`, not here.
+My shell config, the small scripts I keep in `~/.local/bin`, and my SwiftBar plugins. Claude Code
+rules and skills live in `claude-config`, not here.
 
 ## Contents
 
@@ -25,12 +25,15 @@ in `claude-config`, not here.
   write through the Atlassian MCP, or a PR reviewed, merged, closed or marked ready with `gh`.
 - `bin/claude-agent-notify` — a SwiftBar notification when a session of `claude agents` ends its
   turn or waits on a permission or a question, as a Claude Code hook. Foreground sessions are
-  skipped. It also refreshes `~/.config/swiftbar/claude-agents.30s.sh`, the menu-bar count of
-  the sessions that need me (a question, or a result not checked yet), and clears the park mark
-  that plugin leaves in `~/.cache/claude-agents/seen/` when I click a session I have read but
-  cannot act on yet.
+  skipped. It also refreshes `swiftbar/claude-agents.30s.sh` and clears the park mark that plugin
+  leaves in `~/.cache/claude-agents/seen/`.
 - `bin/update-slack-status` — set the Slack status from the calendar, every minute
   (`launchd/com.user.slack-status.plist`).
+- `swiftbar/devstatus.1m.sh` — the SwiftBar menu of what waits on me, read from the
+  `update-dev-status` payload, with a notification when a count goes up.
+- `swiftbar/claude-agents.30s.sh` — the SwiftBar count of the `claude agents` sessions that need
+  me: a question, or a result not checked yet. Clicking one I have read but cannot act on yet parks
+  it out of the count until the session moves again.
 
 ## Install
 
@@ -38,9 +41,10 @@ in `claude-config`, not here.
 ./install.sh
 ```
 
-Symlinks `.zshrc` into `~` and every `bin/*` into `~/.local/bin`, and prunes symlinks whose target
-left the repo. The launchd agents are copied into `~/Library/LaunchAgents` instead, because launchd
-does not reliably follow a symlinked agent, and reloaded when they change. Safe to re-run.
+Symlinks `.zshrc` into `~`, every `bin/*` into `~/.local/bin` and every `swiftbar/*` into
+`~/.config/swiftbar` (the plugin directory set in SwiftBar's preferences), and prunes symlinks whose
+target left the repo. The launchd agents are copied into `~/Library/LaunchAgents` instead, because
+launchd does not reliably follow a symlinked agent, and reloaded when they change. Safe to re-run.
 
 The other scheduled jobs on this Mac, the `work-*` agents, live in `work-tooling`. The `gh review` and `gh fix` aliases call `~/.local/bin/gh-review` and `~/.local/bin/gh-fix`,
 so they keep working through the symlinks. The `prs` and `notifications` aliases refresh the status
