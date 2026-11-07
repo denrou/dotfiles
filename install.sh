@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Symlink the shell config, personal scripts and SwiftBar plugins into place, copy
-# the launchd agents.
+# Symlink the shell and Hammerspoon configs, personal scripts and SwiftBar plugins
+# into place, copy the launchd agents.
 # Idempotent; never overwrites a real file.
 set -euo pipefail
 
@@ -23,6 +23,7 @@ link() {
 }
 
 link "$REPO/.zshrc" "$HOME/.zshrc"
+link "$REPO/hammerspoon/init.lua" "$HOME/.hammerspoon/init.lua"
 
 for f in "$REPO"/bin/*; do
   [ -e "$f" ] || continue
