@@ -1,12 +1,15 @@
 # dotfiles
 
-My shell config, the small scripts I keep in `~/.local/bin`, and my SwiftBar plugins. Claude Code
-rules and skills live in `claude-config`, not here.
+My shell and Hammerspoon configs, the small scripts I keep in `~/.local/bin`, and my SwiftBar
+plugins. Claude Code rules and skills live in `claude-config`, not here.
 
 ## Contents
 
 - `.zshrc` — shell config. Secrets stay in `~/.zshenv`, which is deliberately not versioned: the
   repository is public.
+- `hammerspoon/init.lua` — global keys: Cmd-G corrects the selected text with `bin/spellcheck`,
+  Cmd-J/K/X move between and close browser tabs, Cmd-Alt-S swaps windows between the displays,
+  Cmd-Alt-C and Cmd-Alt-N open the Claude agents and dev status SwiftBar menus.
 - `bin/gh-review` — `gh review <PR>`: check out a PR and start a background Claude review of it,
   with `--context` for what the reviewer should know.
 - `bin/gh-fix` — `gh fix <PR>`: start a background Claude session running the `fix-pr` skill.
@@ -41,10 +44,11 @@ rules and skills live in `claude-config`, not here.
 ./install.sh
 ```
 
-Symlinks `.zshrc` into `~`, every `bin/*` into `~/.local/bin` and every `swiftbar/*` into
-`~/.config/swiftbar` (the plugin directory set in SwiftBar's preferences), and prunes symlinks whose
-target left the repo. The launchd agents are copied into `~/Library/LaunchAgents` instead, because
-launchd does not reliably follow a symlinked agent, and reloaded when they change. Safe to re-run.
+Symlinks `.zshrc` into `~`, `hammerspoon/init.lua` into `~/.hammerspoon`, every `bin/*` into
+`~/.local/bin` and every `swiftbar/*` into `~/.config/swiftbar` (the plugin directory set in
+SwiftBar's preferences), and prunes symlinks whose target left the repo. The launchd agents are
+copied into `~/Library/LaunchAgents` instead, because launchd does not reliably follow a symlinked
+agent, and reloaded when they change. Safe to re-run.
 
 The other scheduled jobs on this Mac, the `work-*` agents, live in `work-tooling`. The `gh review` and `gh fix` aliases call `~/.local/bin/gh-review` and `~/.local/bin/gh-fix`,
 so they keep working through the symlinks. The `prs` and `notifications` aliases refresh the status
