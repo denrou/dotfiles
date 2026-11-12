@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.user.gh-babysit</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/bash</string>
+      <string>/Users/droussel/.local/bin/gh-babysit</string>
+    </array>
+
+    <!-- ~/.local/bin for claude and gh-fix, ~/.cargo/bin for gh-prs. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/Users/droussel/.local/bin:/Users/droussel/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>HOME</key>
+      <string>/Users/droussel</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/droussel</string>
+
+    <!-- 06:00 and 13:00. My colleagues are six hours ahead: their reviews and the CI of their
+         day land in my night and my morning, so the fixes are pushed and their reports wait in
+         the agents view when I start, and again after lunch. Nothing moves in between. -->
+    <key>StartCalendarInterval</key>
+    <array>
+      <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>0</integer></dict>
+      <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/droussel/Library/Logs/gh-babysit.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/droussel/Library/Logs/gh-babysit.log</string>
+  </dict>
+</plist>

@@ -13,6 +13,9 @@ plugins. Claude Code rules and skills live in `claude-config`, not here.
 - `bin/gh-review` — `gh review <PR>`: check out a PR and start a background Claude review of it,
   with `--context` for what the reviewer should know.
 - `bin/gh-fix` — `gh fix <PR>`: start a background Claude session running the `fix-pr` skill.
+- `bin/gh-babysit` — `gh babysit`: start `gh fix` for each of my open PRs that conflicts, has
+  failing CI or unresolved feedback, once per state and twice per PR in three days at most, at
+  06:00 and 13:00 (`launchd/com.user.gh-babysit.plist`). `--dry-run` shows what it would start.
 - `bin/gh-merges` — approve and squash-merge a batch of PRs.
 - `bin/gh-review-time` — hours from PR creation to a reviewer's first activity and first approval,
   over a period.
@@ -50,7 +53,7 @@ SwiftBar's preferences), and prunes symlinks whose target left the repo. The lau
 copied into `~/Library/LaunchAgents` instead, because launchd does not reliably follow a symlinked
 agent, and reloaded when they change. Safe to re-run.
 
-The other scheduled jobs on this Mac, the `work-*` agents, live in `work-tooling`. The `gh review` and `gh fix` aliases call `~/.local/bin/gh-review` and `~/.local/bin/gh-fix`,
+The other scheduled jobs on this Mac, the `work-*` agents, live in `work-tooling`. The `gh review`, `gh fix` and `gh babysit` aliases call `~/.local/bin/gh-review`, `~/.local/bin/gh-fix` and `~/.local/bin/gh-babysit`,
 so they keep working through the symlinks. The `prs` and `notifications` aliases refresh the status
 bars after a command that changes a count (`--on-change` needs gh-notifications 0.3.0 or later):
 

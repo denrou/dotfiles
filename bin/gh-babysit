@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Start a background fix (gh fix) for each of my open PRs that is stuck:
+# conflicts with its base, failing CI, or unresolved review feedback.
+#
+# Usage: gh babysit [-n|--dry-run] [--max N]
+#
+#   -n, --dry-run   print what would be started, start nothing, record nothing
+#   --max N         start at most N fixes in one run (default 3)
+#
+# The PRs come from `gh-prs --created --json`. Skipped: drafts, stacked PRs
+# (fix-pr does not merge a base that is another PR), repositories with no
+# local clone under $GH_FIX_ROOT (default ~/code), and my own repositories,
+# where the session that opened the PR already looks after it.
+#
+# A fix is started once per state: the same PR at the same head for the same
+# reasons is never retried, since what fix-pr could not fix then (a check it
+# cannot read, a question for the reviewer) it cannot fix now. After
+# $GH_BABYSIT_MAX_TRIES starts (default 2) on one PR within three days, the PR
+# is left alone and listed as needing me: a third unattended push would only
+# add commits to a PR that needs a person.
+#
+# What was started is in $XDG_STATE_HOME/gh-babysit/started.tsv
+# (default ~/.local/state), safe to delete: every stuck PR is then tried again.
+set -eo pipefail
+
+usage() {
+    grep '^#' "$0" | sed 's/^# \{0,1\}//' | tail -n +2
+}
+
+dry_run=0
+max=3
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -n|--dry-run)
+            dry_run=1
+            shift
+            ;;
+        --max)
+            [[ $# -ge 2 ]] || { echo "error: $1 requires a value" >&2; exit 1; }
+            max="$2"
+            shift 2
+            ;;
+        --max=*)
+            max="${1#*=}"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "error: unknown argument $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+[[ "$max" =~ ^[0-9]+$ ]] || { echo "error: --max must be a number, got '$max'" >&2; exit 1; }
+
+max_tries="${GH_BABYSIT_MAX_TRIES:-2}"
+root="${GH_FIX_ROOT:-$HOME/code}"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/gh-babysit"
+state="$state_dir/started.tsv"
+mkdir -p "$state_dir"
+touch "$state"
+
+now=$(date +%s)
+since=$((now - 3 * 24 * 3600))
+me=$(gh api user --jq .login | tr '[:upper:]' '[:lower:]')
+
+# One line per stuck PR: repo, number, head, reasons (comma-separated), and
+# why it is skipped when it is (empty otherwise).
+stuck=$(gh-prs --created --json | jq -r '
+  .[]
+  | [ (if .mergeable == "CONFLICTING" then "conflicts" else empty end),
+      (if .checksState == "FAILURE" then "ci" else empty end),
+      (if .unresolvedFeedback then "feedback" else empty end) ] as $reasons
+  | select($reasons | length > 0)
+  | [ .repo, .number, .headRefOid, ($reasons | join(",")),
+      (if .isDraft then "draft" elif .stacked then "stacked" else "" end) ]
+  | @tsv')
+
+started=0
+while IFS=$'\t' read -r repo number head reasons skip; do
+    [[ -n "$repo" ]] || continue
+    pr="$repo#$number"
+    owner=$(tr '[:upper:]' '[:lower:]' <<<"${repo%%/*}")
+
+    if [[ -z "$skip" && "$owner" == "$me" ]]; then
+        skip="my own repository"
+    fi
+    if [[ -z "$skip" && ! -d "$root/$owner/${repo#*/}" ]]; then
+        skip="no local clone"
+    fi
+    if [[ -z "$skip" ]] && awk -F'\t' -v pr="$pr" -v head="$head" -v reasons="$reasons" \
+        '$2 == pr && $3 == head && $4 == reasons { found = 1 } END { exit !found }' "$state"; then
+        skip="already tried at ${head:0:7}"
+    fi
+    if [[ -z "$skip" ]]; then
+        tries=$(awk -F'\t' -v pr="$pr" -v since="$since" \
+            '$2 == pr && $1 >= since { n++ } END { print n + 0 }' "$state")
+        if (( tries >= max_tries )); then
+            skip="needs you: $tries fixes started in three days"
+        fi
+    fi
+    if [[ -z "$skip" ]] && (( started >= max )); then
+        skip="over --max $max, next run"
+    fi
+
+    if [[ -n "$skip" ]]; then
+        echo "skip   $pr ($reasons): $skip"
+        continue
+    fi
+
+    started=$((started + 1))
+    if (( dry_run )); then
+        echo "would  $pr ($reasons)"
+        continue
+    fi
+    echo "fix    $pr ($reasons)"
+    # Recorded only once the session started: a failed start is tried again.
+    if gh-fix --repo "$repo" "$number" </dev/null; then
+        printf '%s\t%s\t%s\t%s\n' "$now" "$pr" "$head" "$reasons" >>"$state"
+    else
+        echo "error: gh fix did not start for $pr" >&2
+    fi
+done <<<"$stuck"
+
+if (( started == 0 )); then
+    echo "nothing to start"
+fi
