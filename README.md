@@ -17,7 +17,10 @@ plugins. Claude Code rules and skills live in `claude-config`, not here.
   failing CI or unresolved feedback, once per state and twice per PR in three days at most, at
   06:00 and 13:00 (`launchd/com.user.gh-babysit.plist`). `--dry-run` shows what it would start.
   For a PR gone stale waiting on a review, it also leaves a Slack DM in my drafts to the reviewer
-  that `~/.config/gh-babysit/reviewers.toml` names for the repository and the pending team.
+  that `~/.config/gh-babysit/config.toml` names for the repository and the pending team. And it
+  has Claude review the Renovate and Dependabot Python updates awaiting my review once their
+  checks pass, approving and merging the patch and minor ones it finds nothing against when
+  `[deps] merge = true` is set there, logging its verdicts otherwise.
 - `bin/gh-merges` — approve and squash-merge a batch of PRs.
 - `bin/gh-review-time` — hours from PR creation to a reviewer's first activity and first approval,
   over a period.
