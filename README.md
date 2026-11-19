@@ -16,6 +16,8 @@ plugins. Claude Code rules and skills live in `claude-config`, not here.
 - `bin/gh-babysit` — `gh babysit`: start `gh fix` for each of my open PRs that conflicts, has
   failing CI or unresolved feedback, once per state and twice per PR in three days at most, at
   06:00 and 13:00 (`launchd/com.user.gh-babysit.plist`). `--dry-run` shows what it would start.
+  For a PR gone stale waiting on a review, it also leaves a Slack DM in my drafts to the reviewer
+  that `~/.config/gh-babysit/reviewers.toml` names for the repository and the pending team.
 - `bin/gh-merges` — approve and squash-merge a batch of PRs.
 - `bin/gh-review-time` — hours from PR creation to a reviewer's first activity and first approval,
   over a period.

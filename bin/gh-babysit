@@ -21,6 +21,29 @@
 #
 # What was started is in $XDG_STATE_HOME/gh-babysit/started.tsv
 # (default ~/.local/state), safe to delete: every stuck PR is then tried again.
+#
+# It also drafts a Slack DM to a reviewer for each PR that gh-prs marks stale
+# (waiting on a review with no activity for its stale_after, 3 days by
+# default). Who to ask comes from $XDG_CONFIG_HOME/gh-babysit/reviewers.toml
+# (default ~/.config), kept out of this repository since it names colleagues:
+#
+#   [[rule]]
+#   repo = "centreon-datascience"   # name, or owner/name
+#   team = "owners-python"          # matches while this team's review is pending
+#   ping = "@slack-handle"          # without it: the team's members in turn
+#   lang = "en"                     # the draft's language, French by default
+#
+#   [slack]
+#   github-login = "@slack-handle"  # for members the Slack name search misses
+#
+# Every matching rule drafts one message, so each pending team gets its own
+# ask. Without a ping, the team's members take turns across PRs, so one
+# person does not take every ask. The draft waits in Slack's drafts for me to
+# read and send: a guessed reviewer must never get a message I did not see.
+# A PR is drafted for once per stale spell, so again only after new activity
+# and a new silence, and not at all when Slack shows I already sent its URL to
+# that person since then. $XDG_STATE_HOME/gh-babysit/nudged.tsv holds what was
+# drafted and whose turn it was.
 set -eo pipefail
 
 usage() {
@@ -68,10 +91,11 @@ touch "$state"
 now=$(date +%s)
 since=$((now - 3 * 24 * 3600))
 me=$(gh api user --jq .login | tr '[:upper:]' '[:lower:]')
+prs=$(gh-prs --created --json)
 
 # One line per stuck PR: repo, number, head, reasons (comma-separated), and
 # why it is skipped when it is (empty otherwise).
-stuck=$(gh-prs --created --json | jq -r '
+stuck=$(jq -r <<<"$prs" '
   .[]
   | [ (if .mergeable == "CONFLICTING" then "conflicts" else empty end),
       (if .checksState == "FAILURE" then "ci" else empty end),
@@ -129,4 +153,145 @@ done <<<"$stuck"
 
 if (( started == 0 )); then
     echo "nothing to start"
+fi
+
+config="${XDG_CONFIG_HOME:-$HOME/.config}/gh-babysit/reviewers.toml"
+nudged="$state_dir/nudged.tsv"
+touch "$nudged"
+rules='{}'
+if [[ -f "$config" ]]; then
+    rules=$(python3 -c 'import json, sys, tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], "rb"))))' "$config")
+fi
+
+# The team's next member in turn, other than me: the one after whoever the
+# team's last draft went to, in GitHub's order, wrapping round. Prints the
+# login and the Slack handle, the handle from the [slack] table, else from a
+# Slack search on the GitHub name when it finds exactly one person, else
+# empty. Prints nothing when the team has no one else.
+team_member() {
+    local org="$1" team="$2" pr="$3" updated="$4" last same login handle name
+    last=$(awk -F'\t' -v team="$org/$team" '$5 == team { login = $6 } END { print login }' "$nudged")
+    # The member this PR already drew in this stale spell keeps it: the turn
+    # moves on between PRs, not between runs.
+    same=$(awk -F'\t' -v team="$org/$team" -v pr="$pr" -v updated="$updated" \
+        '$5 == team && $2 == pr && $3 == updated { login = $6; handle = $4 } END { if (login != "") printf "%s\x1f%s", login, handle }' "$nudged")
+    if [[ -n "$same" ]]; then
+        echo "$same"
+        return 0
+    fi
+    login=$( (gh api --paginate "orgs/$org/teams/$team/members" --jq '.[].login' || true) \
+        | { grep -vix "$me" || true; } \
+        | awk -v last="$last" '
+            NR == 1 { first = $0 }
+            found && pick == "" { pick = $0 }
+            tolower($0) == tolower(last) { found = 1 }
+            END { print (pick != "" ? pick : first) }')
+    [[ -n "$login" ]] || return 0
+    handle=$(jq -r --arg login "$login" '.slack // {} | to_entries[]
+        | select((.key | ascii_downcase) == ($login | ascii_downcase)) | .value' <<<"$rules")
+    if [[ -z "$handle" ]]; then
+        name=$(gh api "users/$login" --jq '.name // empty' || true)
+        if [[ -n "$name" ]]; then
+            handle=$( (slack people --json "$name" || echo '[]') | jq -r 'if length == 1 then "@" + .[0].handle else empty end')
+        fi
+    fi
+    printf '%s\x1f%s\n' "$login" "$handle"
+}
+
+# Whether I already sent this PR's URL to this person since the PR's last
+# activity, by hand or from an earlier draft: in our DM, or anywhere with a
+# mention of them. A failed search counts as no: the draft only waits in
+# Slack's drafts, where I see it before it goes.
+already_pinged() {
+    local repo="$1" number="$2" updated="$3" handle="$4" person found
+    person=$( (slack people --json "${handle#@}" || echo '[]') \
+        | jq -c --arg h "${handle#@}" '[.[] | select(.handle == $h)][0] // empty')
+    [[ -n "$person" ]] || return 1
+    found=$( (slack search --json -n 50 "$repo/pull/$number from:me" || echo '{}') | jq -r \
+        --argjson person "$person" --arg updated "$updated" --arg pull "$repo/pull/$number" '
+        [(.matches // [])[]
+         | select((.ts | tonumber) >= ($updated | fromdateiso8601))
+         | select(.text | test(($pull | gsub("[.]"; "\\.")) + "([^0-9]|$)"))
+         | select(.name == "@" + $person.display or (.text | contains("<@" + $person.id + ">")))]
+        | length > 0')
+    [[ "$found" == true ]]
+}
+
+drafted=0
+while IFS=$'\t' read -r repo number updated url title; do
+    [[ -n "$repo" ]] || continue
+    pr="$repo#$number"
+    if ! view=$(gh pr view "$number" --repo "$repo" --json reviewRequests,additions,deletions); then
+        echo "error: could not read the review requests of $pr" >&2
+        continue
+    fi
+    targets=$(jq -r --arg repo "$repo" --argjson view "$view" '
+        ($view.reviewRequests | map(select(.__typename == "Team")
+            | .slug | sub("^[^/]+/"; "") | ascii_downcase)) as $teams
+        | ($repo | ascii_downcase) as $full
+        | ($full | sub("^[^/]+/"; "")) as $name
+        | (.rule // [])[]
+        | select((.repo | ascii_downcase) as $r | $r == $full or $r == $name)
+        | select(.team == null or ((.team | ascii_downcase) as $t | $teams | index($t)))
+        | [(.team // ""), (.ping // ""), (.lang // "fr")] | join("\u001f")' <<<"$rules")
+    if [[ -z "$targets" ]]; then
+        echo "skip   $pr (stale): no reviewer rule matches"
+        continue
+    fi
+    size="+$(jq -r .additions <<<"$view") −$(jq -r .deletions <<<"$view")"
+    asked=" "
+    # Not a tab: read collapses runs of whitespace separators, and ping is
+    # often empty.
+    while IFS=$'\x1f' read -r team ping lang; do
+        handle="$ping"
+        login=""
+        if [[ -z "$handle" && -n "$team" ]]; then
+            IFS=$'\x1f' read -r login handle < <(team_member "${repo%%/*}" "$team" "$pr" "$updated" </dev/null)
+            if [[ -z "$login" ]]; then
+                echo "skip   $pr (stale): no one to ask, team '$team' lists no one else"
+                continue
+            fi
+            if [[ -z "$handle" ]]; then
+                echo "skip   $pr (stale): no Slack handle for GitHub $login, add it under [slack]"
+                continue
+            fi
+        fi
+        if [[ -z "$handle" ]]; then
+            echo "skip   $pr (stale): the rule names neither ping nor team"
+            continue
+        fi
+        [[ "$asked" == *" $handle "* ]] && continue
+        asked+="$handle "
+        if awk -F'\t' -v pr="$pr" -v updated="$updated" -v handle="$handle" \
+            '$2 == pr && $3 == updated && $4 == handle { found = 1 } END { exit !found }' "$nudged"; then
+            echo "skip   $pr (stale): already drafted to $handle"
+            continue
+        fi
+        if already_pinged "$repo" "$number" "$updated" "$handle" </dev/null; then
+            echo "skip   $pr (stale): already sent to $handle on Slack"
+            continue
+        fi
+        if [[ "$lang" == en ]]; then
+            text="Hello, could you review $url when you have a moment? ($title, $size) If you cannot, tell me who could. Thanks!"
+        else
+            text="Hello, tu aurais un moment pour relire $url stp ? ($title, $size) Sinon dis-moi qui pourrait. Merci !"
+        fi
+        drafted=$((drafted + 1))
+        if (( dry_run )); then
+            echo "would  draft to $handle for $pr: $text"
+            continue
+        fi
+        echo "draft  $pr to $handle"
+        if slack send --draft "$handle" "$text" </dev/null; then
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$pr" "$updated" "$handle" \
+                "${login:+${repo%%/*}/$team}" "$login" >>"$nudged"
+        else
+            echo "error: slack did not save the draft for $pr" >&2
+        fi
+    done <<<"$targets"
+done < <(jq -r '.[] | select(.attentionReasons | index("stale"))
+    | [.repo, .number, .updatedAt, .url, .title] | @tsv' <<<"$prs")
+
+if (( drafted == 0 )); then
+    echo "nothing to draft"
 fi
